@@ -302,34 +302,36 @@ GET /v1/lookup?product_url=https://example.com/product/123`,
             price: { mode: "fixed", currency: "USD", amount: "0.010000" },
             protocols: [{ "x402": {} }]
           },
-          "x-bazaar": {
-            schema: {
-              properties: {
-                input: {
-                  type: "object",
-                  properties: {
-                    type: { type: "string", const: "http" },
-                    method: { type: "string", enum: ["POST"] },
-                    bodyType: { type: "string", enum: ["json"] },
-                    body: {
-                      type: "object",
-                      properties: {
-                        query: { type: "string", description: "Search query" },
-                        image_url: { type: "string", description: "Image URL for visual search" },
-                        limit: { type: "integer", default: 10 }
+          extensions: {
+            bazaar: {
+              schema: {
+                properties: {
+                  input: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", const: "http" },
+                      method: { type: "string", enum: ["POST"] },
+                      bodyType: { type: "string", enum: ["json"] },
+                      body: {
+                        type: "object",
+                        properties: {
+                          query: { type: "string", description: "Search query" },
+                          image_url: { type: "string", description: "Image URL for visual search" },
+                          limit: { type: "integer", default: 10 }
+                        }
                       }
                     }
-                  }
-                },
-                output: {
-                  type: "object",
-                  properties: {
-                    type: { type: "string", const: "json" },
-                    example: {
-                      type: "object",
-                      properties: {
-                        products: { type: "array" },
-                        next_page_token: { type: "string" }
+                  },
+                  output: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", const: "json" },
+                      example: {
+                        type: "object",
+                        properties: {
+                          products: { type: "array" },
+                          next_page_token: { type: "string" }
+                        }
                       }
                     }
                   }
@@ -415,35 +417,37 @@ GET /v1/lookup?product_url=https://example.com/product/123`,
             price: { mode: "fixed", currency: "USD", amount: "0.005000" },
             protocols: [{ "x402": {} }]
           },
-          "x-bazaar": {
-            schema: {
-              properties: {
-                input: {
-                  type: "object",
-                  properties: {
-                    type: { type: "string", const: "http" },
-                    method: { type: "string", enum: ["GET"] },
-                    queryParams: {
-                      type: "object",
-                      properties: {
-                        product_url: { type: "string", description: "Product page URL to look up" }
+          extensions: {
+            bazaar: {
+              schema: {
+                properties: {
+                  input: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", const: "http" },
+                      method: { type: "string", enum: ["GET"] },
+                      queryParams: {
+                        type: "object",
+                        properties: {
+                          product_url: { type: "string", description: "Product page URL to look up" }
+                        }
                       }
                     }
-                  }
-                },
-                output: {
-                  type: "object",
-                  properties: {
-                    type: { type: "string", const: "json" },
-                    example: {
-                      type: "object",
-                      properties: {
-                        id: { type: "string" },
-                        title: { type: "string" },
-                        description: { type: "string" },
-                        brands: { type: "array" },
-                        images: { type: "array" },
-                        offers: { type: "array" }
+                  },
+                  output: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", const: "json" },
+                      example: {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          title: { type: "string" },
+                          description: { type: "string" },
+                          brands: { type: "array" },
+                          images: { type: "array" },
+                          offers: { type: "array" }
+                        }
                       }
                     }
                   }
