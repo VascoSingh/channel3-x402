@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: channel3-x402
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: CHANNEL3_API_KEY
+        sync: false
+      - key: CDP_API_KEY_ID
+        sync: false
+      - key: CDP_API_KEY_SECRET
+        sync: false
+      - key: WALLET_ADDRESS
+        sync: false
+      - key: PORT
+        value: 3402

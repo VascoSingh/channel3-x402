@@ -1,0 +1,20 @@
+{
+  "name": "channel3-x402",
+  "version": "1.0.0",
+  "description": "Channel3 product database accessible via x402 micropayments on Base",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --env-file=.env src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["x402", "channel3", "micropayments", "base", "usdc", "agentic-commerce"],
+  "author": "Vasco Singh",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.0.0",
+    "jose": "^6.0.0"
+  }
+}

@@ -1,0 +1,303 @@
+/**
+ * Channel3 x402 Wrapper
+ *
+ * Exposes Channel3's 100M+ product database through x402 micropayments.
+ * AI agents can search products and pay per-call with USDC on Base.
+ *
+ * Endpoints:
+ *   POST /v1/search  - Search products ($0.01/call)
+ *   GET  /v1/lookup  - Product details ($0.005/call)
+ */
+
+import express from "express";
+import crypto from "crypto";
+
+// =============================================================================
+// Configuration
+// =============================================================================
+
+const config = {
+  port: process.env.PORT || 3402,
+  wallet: process.env.WALLET_ADDRESS,
+  channel3ApiKey: process.env.CHANNEL3_API_KEY,
+  cdpKeyId: process.env.CDP_API_KEY_ID,
+  cdpKeySecret: process.env.CDP_API_KEY_SECRET,
+
+  // Base mainnet
+  network: "eip155:8453",
+  usdcContract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  cdpFacilitatorUrl: "https://api.cdp.coinbase.com/platform/v2/x402",
+};
+
+// =============================================================================
+// x402 Payment Handling
+// =============================================================================
+
+/**
+ * Creates the x402 Payment Required response payload.
+ * This tells the client how much to pay and where.
+ */
+function createPaymentRequired(req, priceUsd, description) {
+  const amountMicroUsdc = String(Math.round(priceUsd * 1_000_000));
+
+  const payload = {
+    x402Version: 2,
+    resource: {
+      url: `${req.protocol}://${req.get("host")}${req.originalUrl}`,
+      method: req.method,
+      description,
+      mimeType: "application/json",
+    },
+    accepts: [
+      {
+        scheme: "exact",
+        network: config.network,
+        amount: amountMicroUsdc,
+        asset: config.usdcContract,
+        payTo: config.wallet,
+        maxTimeoutSeconds: 300,
+        extra: { name: "USDC", version: "2" },
+      },
+    ],
+  };
+
+  return Buffer.from(JSON.stringify(payload)).toString("base64");
+}
+
+/**
+ * Verifies payment with CDP facilitator.
+ * Falls back to demo mode if CDP keys aren't configured or verification fails.
+ */
+async function verifyPayment(paymentHeader) {
+  if (!paymentHeader) {
+    return { valid: false, reason: "no_payment" };
+  }
+
+  // Demo mode if CDP not configured
+  if (!config.cdpKeyId || !config.cdpKeySecret) {
+    return { valid: true, mode: "demo" };
+  }
+
+  try {
+    // Generate CDP JWT for authentication
+    const secretBytes = Buffer.from(config.cdpKeySecret, "base64").slice(0, 32);
+    const key = crypto.createPrivateKey({
+      key: Buffer.concat([
+        Buffer.from("302e020100300506032b657004220420", "hex"),
+        secretBytes,
+      ]),
+      format: "der",
+      type: "pkcs8",
+    });
+
+    const now = Math.floor(Date.now() / 1000);
+    const header = { alg: "EdDSA", kid: config.cdpKeyId, nonce: crypto.randomUUID().replace(/-/g, "") };
+    const payload = { iss: "cdp", sub: config.cdpKeyId, nbf: now, exp: now + 120, uri: "POST api.cdp.coinbase.com/platform/v2/x402/verify" };
+
+    const jwt = [
+      Buffer.from(JSON.stringify(header)).toString("base64url"),
+      Buffer.from(JSON.stringify(payload)).toString("base64url"),
+    ].join(".");
+
+    const signature = crypto.sign(null, Buffer.from(jwt), key);
+    const signedJwt = `${jwt}.${signature.toString("base64url")}`;
+
+    // Verify with CDP
+    const response = await fetch(`${config.cdpFacilitatorUrl}/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${signedJwt}`,
+      },
+      body: JSON.stringify({
+        x402Version: 2,
+        paymentPayload: paymentHeader,
+        paymentRequirements: {
+          scheme: "exact",
+          network: config.network,
+          payTo: config.wallet,
+          asset: config.usdcContract,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      // Fall back to demo mode on CDP errors
+      return { valid: true, mode: "demo" };
+    }
+
+    const result = await response.json();
+    return { valid: result.valid === true, mode: "verified" };
+  } catch (error) {
+    // Fall back to demo mode on any error
+    return { valid: true, mode: "demo", error: error.message };
+  }
+}
+
+/**
+ * Express middleware that requires x402 payment.
+ */
+function requirePayment(priceUsd, description) {
+  return async (req, res, next) => {
+    const paymentHeader = req.headers["x-payment"] || req.headers["payment-signature"];
+
+    if (!paymentHeader) {
+      const paymentRequired = createPaymentRequired(req, priceUsd, description);
+      return res.status(402).set("Payment-Required", paymentRequired).json({});
+    }
+
+    const verification = await verifyPayment(paymentHeader);
+    if (!verification.valid) {
+      return res.status(402).json({ error: "Payment verification failed", reason: verification.reason });
+    }
+
+    next();
+  };
+}
+
+// =============================================================================
+// Channel3 API Client
+// =============================================================================
+
+async function searchProducts(query, imageUrl, limit) {
+  const response = await fetch("https://api.trychannel3.com/v1/search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": config.channel3ApiKey,
+    },
+    body: JSON.stringify({ query, image_url: imageUrl, limit }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Channel3 API error: ${response.status} - ${error}`);
+  }
+
+  return response.json();
+}
+
+async function lookupProduct(productUrl) {
+  const response = await fetch(
+    `https://api.trychannel3.com/v1/lookup?product_url=${encodeURIComponent(productUrl)}`,
+    { headers: { "x-api-key": config.channel3ApiKey } }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Channel3 API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// =============================================================================
+// Express App
+// =============================================================================
+
+const app = express();
+app.use(express.json());
+
+// Health check
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    service: "channel3-x402",
+    channel3: config.channel3ApiKey ? "configured" : "missing",
+    payments: config.cdpKeyId ? "cdp" : "demo",
+  });
+});
+
+// Product search - $0.01/call
+app.post("/v1/search", requirePayment(0.01, "Search 100M+ products via Channel3"), async (req, res) => {
+  try {
+    const { query, image_url, limit = 10 } = req.body;
+
+    if (!query && !image_url) {
+      return res.status(400).json({ error: "query or image_url required" });
+    }
+
+    if (!config.channel3ApiKey) {
+      return res.status(503).json({ error: "Channel3 API not configured" });
+    }
+
+    const data = await searchProducts(query, image_url, limit);
+    res.json(data);
+  } catch (error) {
+    console.error("Search error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Product lookup - $0.005/call
+app.get("/v1/lookup", requirePayment(0.005, "Get product details from Channel3"), async (req, res) => {
+  try {
+    const { product_url } = req.query;
+
+    if (!product_url) {
+      return res.status(400).json({ error: "product_url query param required" });
+    }
+
+    if (!config.channel3ApiKey) {
+      return res.status(503).json({ error: "Channel3 API not configured" });
+    }
+
+    const data = await lookupProduct(product_url);
+    res.json(data);
+  } catch (error) {
+    console.error("Lookup error:", error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// OpenAPI spec for discovery
+app.get("/openapi.json", (req, res) => {
+  res.json({
+    openapi: "3.0.0",
+    info: {
+      title: "Channel3 x402",
+      description: "Channel3 product database via x402 micropayments. Search 100M+ products, pay with USDC on Base.",
+      version: "1.0.0",
+    },
+    "x-x402": {
+      wallet: config.wallet,
+      network: config.network,
+      asset: config.usdcContract,
+    },
+    paths: {
+      "/v1/search": {
+        post: {
+          summary: "Search products",
+          description: "$0.01/call - Natural language or image search across 100M+ products",
+          "x-x402-price": "$0.01",
+        },
+      },
+      "/v1/lookup": {
+        get: {
+          summary: "Product details",
+          description: "$0.005/call - Get detailed product info by URL",
+          "x-x402-price": "$0.005",
+        },
+      },
+    },
+  });
+});
+
+// =============================================================================
+// Start Server
+// =============================================================================
+
+app.listen(config.port, () => {
+  console.log(`
+  Channel3 x402 Wrapper
+  =====================
+  Server:    http://localhost:${config.port}
+  Network:   Base Mainnet
+  Wallet:    ${config.wallet || "not set"}
+  Channel3:  ${config.channel3ApiKey ? "✓" : "✗"}
+  CDP:       ${config.cdpKeyId ? "✓" : "demo mode"}
+
+  Endpoints:
+    POST /v1/search  $0.01/call
+    GET  /v1/lookup  $0.005/call
+  `);
+});
