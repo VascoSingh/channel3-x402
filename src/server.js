@@ -249,36 +249,162 @@ app.get("/v1/lookup", requirePayment(0.005, "Get product details from Channel3")
   }
 });
 
-// OpenAPI spec for discovery
+// OpenAPI spec for AgentCash discovery
 app.get("/openapi.json", (req, res) => {
   res.json({
-    openapi: "3.0.0",
+    openapi: "3.1.0",
     info: {
       title: "Channel3 x402",
-      description: "Channel3 product database via x402 micropayments. Search 100M+ products, pay with USDC on Base.",
       version: "1.0.0",
+      description: "Access Channel3's 100M+ product database via x402 micropayments. Pay per call with USDC on Base. Includes product search, details, pricing, and affiliate links.",
+      "x-guidance": `Channel3 Product Search API
+
+Use POST /v1/search to search products by natural language query or image URL. Returns product titles, descriptions, images, prices, and affiliate purchase links.
+
+Use GET /v1/lookup to get detailed product information for a specific product URL.
+
+Both endpoints require x402 payment in USDC on Base mainnet. Payments are processed automatically by compatible clients like AgentCash.
+
+Example search:
+POST /v1/search
+{"query": "wireless headphones", "limit": 5}
+
+Example lookup:
+GET /v1/lookup?product_url=https://example.com/product/123`,
     },
-    "x-x402": {
-      wallet: config.wallet,
-      network: config.network,
-      asset: config.usdcContract,
+    servers: [
+      { url: "https://channel3-x402.onrender.com" }
+    ],
+    "x-discovery": {
+      ownershipProofs: []
     },
     paths: {
       "/v1/search": {
         post: {
-          summary: "Search products",
-          description: "$0.01/call - Natural language or image search across 100M+ products",
-          "x-x402-price": "$0.01",
-        },
+          operationId: "searchProducts",
+          summary: "Search products - Natural language or image search across 100M+ products",
+          description: "Search Channel3's product database using natural language queries or image URLs. Returns matching products with titles, descriptions, images, prices, availability, and affiliate purchase links with commission rates.",
+          tags: ["Products"],
+          "x-payment-info": {
+            price: { mode: "fixed", currency: "USD", amount: "0.010000" },
+            protocols: [{ "x402": {} }]
+          },
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    query: {
+                      type: "string",
+                      minLength: 1,
+                      description: "Natural language search query (e.g., 'wireless headphones under $100')"
+                    },
+                    image_url: {
+                      type: "string",
+                      format: "uri",
+                      description: "Public image URL for visual product search"
+                    },
+                    limit: {
+                      type: "integer",
+                      minimum: 1,
+                      maximum: 30,
+                      default: 10,
+                      description: "Maximum number of results to return"
+                    }
+                  },
+                  anyOf: [
+                    { required: ["query"] },
+                    { required: ["image_url"] }
+                  ]
+                }
+              }
+            }
+          },
+          responses: {
+            "200": {
+              description: "Search results",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      products: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string" },
+                            title: { type: "string" },
+                            description: { type: "string" },
+                            brands: { type: "array", items: { type: "object" } },
+                            images: { type: "array", items: { type: "object" } },
+                            offers: { type: "array", items: { type: "object" } }
+                          }
+                        }
+                      },
+                      next_page_token: { type: "string", nullable: true }
+                    },
+                    required: ["products"]
+                  }
+                }
+              }
+            },
+            "400": { description: "Bad Request - query or image_url required" },
+            "402": { description: "Payment Required" },
+            "500": { description: "Server Error" }
+          }
+        }
       },
       "/v1/lookup": {
         get: {
-          summary: "Product details",
-          description: "$0.005/call - Get detailed product info by URL",
-          "x-x402-price": "$0.005",
-        },
-      },
-    },
+          operationId: "lookupProduct",
+          summary: "Product details - Get detailed product info by URL",
+          description: "Retrieve detailed product information for any supported product URL. Returns comprehensive product data including title, description, images, pricing across retailers, availability, and affiliate links.",
+          tags: ["Products"],
+          "x-payment-info": {
+            price: { mode: "fixed", currency: "USD", amount: "0.005000" },
+            protocols: [{ "x402": {} }]
+          },
+          parameters: [
+            {
+              name: "product_url",
+              in: "query",
+              required: true,
+              description: "The product page URL to look up",
+              schema: {
+                type: "string",
+                format: "uri"
+              }
+            }
+          ],
+          responses: {
+            "200": {
+              description: "Product details",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string" },
+                      title: { type: "string" },
+                      description: { type: "string" },
+                      brands: { type: "array", items: { type: "object" } },
+                      images: { type: "array", items: { type: "object" } },
+                      offers: { type: "array", items: { type: "object" } }
+                    }
+                  }
+                }
+              }
+            },
+            "400": { description: "Bad Request - product_url required" },
+            "402": { description: "Payment Required" },
+            "500": { description: "Server Error" }
+          }
+        }
+      }
+    }
   });
 });
 
