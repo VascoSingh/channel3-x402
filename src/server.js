@@ -207,6 +207,19 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Well-known x402 discovery endpoint
+app.get("/.well-known/x402", (req, res) => {
+  res.json({
+    openapi: "/openapi.json",
+    version: "1.0.0"
+  });
+});
+
+// Favicon
+app.get("/favicon.ico", (req, res) => {
+  res.status(204).end();
+});
+
 // Product search - $0.01/call
 app.post("/v1/search", requirePayment(0.01, "Search 100M+ products via Channel3"), async (req, res) => {
   try {
@@ -289,6 +302,43 @@ GET /v1/lookup?product_url=https://example.com/product/123`,
             price: { mode: "fixed", currency: "USD", amount: "0.010000" },
             protocols: [{ "x402": {} }]
           },
+          extensions: {
+            bazaar: {
+              schema: {
+                properties: {
+                  input: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", const: "http" },
+                      method: { type: "string", enum: ["POST"] },
+                      bodyType: { type: "string", enum: ["json"] },
+                      body: {
+                        type: "object",
+                        properties: {
+                          query: { type: "string", description: "Search query" },
+                          image_url: { type: "string", description: "Image URL for visual search" },
+                          limit: { type: "integer", default: 10 }
+                        }
+                      }
+                    }
+                  },
+                  output: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", const: "json" },
+                      example: {
+                        type: "object",
+                        properties: {
+                          products: { type: "array" },
+                          next_page_token: { type: "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
           requestBody: {
             required: true,
             content: {
@@ -366,6 +416,44 @@ GET /v1/lookup?product_url=https://example.com/product/123`,
           "x-payment-info": {
             price: { mode: "fixed", currency: "USD", amount: "0.005000" },
             protocols: [{ "x402": {} }]
+          },
+          extensions: {
+            bazaar: {
+              schema: {
+                properties: {
+                  input: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", const: "http" },
+                      method: { type: "string", enum: ["GET"] },
+                      queryParams: {
+                        type: "object",
+                        properties: {
+                          product_url: { type: "string", description: "Product page URL to look up" }
+                        }
+                      }
+                    }
+                  },
+                  output: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", const: "json" },
+                      example: {
+                        type: "object",
+                        properties: {
+                          id: { type: "string" },
+                          title: { type: "string" },
+                          description: { type: "string" },
+                          brands: { type: "array" },
+                          images: { type: "array" },
+                          offers: { type: "array" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           parameters: [
             {
